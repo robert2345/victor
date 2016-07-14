@@ -7,7 +7,8 @@
 // DEFINES
 #define SIZE 100
 #define ELEMENT_SIZE 6
-#define NR_OF_WAVES 3
+#define NR_OF_WAVES 6
+#define COST_OF_ONE_STEP 0.05
 
 typedef struct
 {
@@ -34,7 +35,7 @@ typedef struct
 } wave;
 
 static dataNode theData[SIZE][SIZE] = {0};
-
+static double maxIntensity = 0;
 static waveEntry waveEntries[NR_OF_WAVES];
 
 static wave waves[NR_OF_WAVES] = {
@@ -75,22 +76,32 @@ static double calcCost(int parentX, int parentY, int parentRX, int parentRY, dou
 
         }
     }
-    return n->cost + fmax(parentIntensity - n->intensity, 0);
+    return n->cost + COST_OF_ONE_STEP + fmax(parentIntensity - n->intensity, 0);
 }
 
 static void prepareData()
 {
+#define START_INTENSITY 0.5
+	maxIntensity = START_INTENSITY;
+	for (int w = 0; w < NR_OF_WAVES; w++)
+	{
+		waves[w].amplitude = (double)rand() / RAND_MAX;
+		waves[w].x = (double)rand() / RAND_MAX * 2 * SIZE;
+		waves[w].y = (double)rand() / RAND_MAX * 2 * SIZE;
+		maxIntensity += waves[w].amplitude;
+	}
 	memset(theData, 0, sizeof(theData));
     for (int i = 0; i < SIZE; i++)
     {
         for(int j = 0; j < SIZE; j++)
         {
-            theData[i][j].intensity = 0.5;
+			theData[i][j].intensity = START_INTENSITY;
             for (int w = 0; w < NR_OF_WAVES; w++)
     	    {
                 double frequency = atof(gtk_entry_buffer_get_text(waveEntries[w].frequencyBuffer));
                 double distanceToSignalOrigo = sqrt(pow(waves[w].x - i, 2.0) + pow(waves[w].y - j, 2.0));
                 theData[i][j].intensity += waves[w].amplitude * sin(distanceToSignalOrigo * frequency);
+
             }
         }
     }
@@ -156,24 +167,27 @@ static gboolean draw_callback (GtkWidget *widget, cairo_t *cr, gpointer data)
 	GdkRGBA color;
 	GtkStyleContext *context;
 
-	context = gtk_widget_get_style_context (widget);
+	context = gtk_widget_get_style_context(widget);
 
-	width = gtk_widget_get_allocated_width (widget);
-	height = gtk_widget_get_allocated_height (widget);
+	width = gtk_widget_get_allocated_width(widget);
+	height = gtk_widget_get_allocated_height(widget);
 
 	gtk_render_background (context, cr, 0, 0, width, height);
 	for (int i = 0; i < SIZE; i++)
 	{
 		for(int j = 0; j < SIZE; j++)
 		{
-			double intensity = theData[i][j].intensity;
+			double intensity = theData[i][j].intensity / maxIntensity;
 			if (theData[i][j].chosen)
 		{
 			cairo_set_source_rgb(cr, 1, 0, 0);
 		}
 		else
 		{
-		cairo_set_source_rgb(cr, intensity*0.5, intensity, intensity*1.75);
+		cairo_set_source_rgb(cr,
+							 intensity,
+							 intensity,
+							 intensity);
 		}
 			cairo_rectangle(cr,
 							i*ELEMENT_SIZE,
@@ -258,7 +272,9 @@ int main( int   argc,
     
     for (int i = 0; i < NR_OF_WAVES; i++)
     {
-        waveEntries[i].frequencyBuffer = gtk_entry_buffer_new("0,02", 4);
+		char frequency[10];
+		snprintf (frequency, 6, "%4lf", ((double)rand())/(RAND_MAX*4.0));
+        waveEntries[i].frequencyBuffer = gtk_entry_buffer_new(frequency, 4);
         waveEntries[i].frequencyEntry = gtk_entry_new_with_buffer(waveEntries[i].frequencyBuffer);
     }
     
