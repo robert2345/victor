@@ -16,13 +16,15 @@
 #define ANN_NUM_NEURONS_HIDDEN (ANN_NUM_INPUT)
 #define ANN_NUM_LAYERS 5
 
+#define TRAIN_DATA_FILENAME "trainingdata_%din_%dout.dat"
+
 bool trainingEnabled = TRUE;
 const float desired_error = (const float) 0.0001;
 struct fann_train_data *trainingData;
 const unsigned int max_epochs = 1;
 const unsigned int epochs_between_reports = 1;
 struct fann *ann;
-    
+
 typedef struct
 {
     double intensity;
@@ -61,7 +63,7 @@ static double calcCost(int parentX, int parentY, int parentRX, int parentRY, dou
 {
     int thisX = parentX + parentRX;
     int thisY = parentY + parentRY;
-    
+
     dataNode *n = &theData[thisX][thisY];
     if (n->visited == FALSE && (thisX != 0 || thisY != 0))
     {
@@ -228,13 +230,13 @@ static void calculateAndDraw(GtkWidget *widget,
                              gpointer data )
 {
     GtkWidget *drawing_area = (GtkWidget*)data;
-    
+
     // Generate the data
     printf("Preparing the data\n");
     prepareData();
 
     // Find path
-    printf("The cost from SIZE, SIZE to 0,0 is %lf\n", calcCost(SIZE-1 ,SIZE-1,0,0,theData[SIZE-1][SIZE-1].intensity));    
+    printf("The cost from SIZE, SIZE to 0,0 is %lf\n", calcCost(SIZE-1 ,SIZE-1,0,0,theData[SIZE-1][SIZE-1].intensity));
 
     // Prepare ANN tranining Data
     for (int i = 0; i < SIZE * SIZE; i++)
@@ -246,27 +248,35 @@ static void calculateAndDraw(GtkWidget *widget,
     // At the same time, train the neural net to make that correct choice.
     int x = SIZE - 1;
     int y = x;
-    dataNode *n = &theData[x][y];
+    dataNode * n = &theData[x][y];
+    dataSetIndex = trainingData->num_data;
     while(n->route_x != 0 || n->route_y != 0)
     {
-        // If we are supposed to train, do it now with theData and x and y as input and
-        // n->route_x and _y as output
-        trainingData->input[0][SIZE * SIZE] = x; 
-        trainingData->input[0][SIZE * SIZE + 1] = y;
-        trainingData->output[0][0] = -1.0;
-        trainingData->output[0][1] = -1.0;
-        trainingData->output[0][2] = -1.0;
-        trainingData->output[0][3] = -1.0;
-        trainingData->output[0][n->dir] = 1.0;
-        if (trainingEnabled)
+        if (EXTEND_TRAINING_DATA)
         {
-            fann_train_on_data(ann, trainingData, max_epochs, epochs_between_reports, desired_error);
-        }
-        else
-        {
-            fann_type *annResults;
-            annResults = fann_run(ann, trainingData->input[0]);
-            
+
+            for (int i = 0; i < SIZE * SIZE; i++)
+            {
+                trainingData->input[0][i] = theData[i/SIZE][i%SIZE].intensity;
+            }
+            trainingData->input[0][SIZE * SIZE] = x;
+            trainingData->input[0][SIZE * SIZE + 1] = y;
+            trainingData->output[0][0] = -1.0;
+            trainingData->output[0][1] = -1.0;
+            trainingData->output[0][2] = -1.0;
+            trainingData->output[0][3] = -1.0;
+            trainingData->output[0][n->dir] = 1.0;
+            FANN_EXTERNAL struct fann_train_data *FANN_API fann_merge_train_data(struct fann_train_data *data1,
+                                                                                                                                        struct fann_train_data *data2)
+            if (trainingEnabled)
+            {
+                fann_train_on_data(ann, trainingData, max_epochs, epochs_between_reports, desired_error);
+            }
+            else
+            {
+                fann_type *annResults;
+                annResults = fann_run(ann, trainingData->input[0]);
+            }
         }
         n->chosen = TRUE;
         x += n->route_x;
@@ -288,16 +298,50 @@ int main( int   argc,
     GtkWidget *drawing_area;
     GtkWidget *box;
     GtkWidget *drawingBox;
+
+    const uint32_t nameLength = 50;
+    char filename[nameLength];
+    FILE *trainingFile;
+    snprintf(filename, nameLength, TRAIN_DATA_FILENAME, num_inputs, num_outputs);
+
     printf("About to create the ANN\n");
+    fann
     ann = fann_create_standard(ANN_NUM_LAYERS, ANN_NUM_INPUT, ANN_NUM_NEURONS_HIDDEN, ANN_NUM_NEURONS_HIDDEN, ANN_NUM_NEURONS_HIDDEN, ANN_NUM_OUTPUT);
     printf("About to create the training data\n");
-    trainingData = fann_create_train(1, ANN_NUM_INPUT, ANN_NUM_OUTPUT);
+    // Open the training data file.
+    trainingFile = fopen(filename, 'r');
+    // Check that the file pointer is not NULL
+    if (trainingFile != NULL)
+    {
+        trainingData = fann_read_train_from_file(const char *filename); // What happens here if the data is badly formatted?
+        // Check that the training data has the correct format
+        uint32_t num_inputs = fann_num_input_train_data(struct fann_train_data *data);
+        uint32_t num_outputs = fann_num_output_train_data(struct fann_train_data *data);
+        if (num_inputs != ANN_NUM_INPUT|| num_outputs != ANN_NUM_OUTPUT)
+        {
+            snprintf(filename, nameLength, TRAIN_DATA_FILENAME, num_inputs, num_outputs);
+            printf("The saved training data is of the wrong format. Saving it as %s and creating new empty training data.", filename);
+            fclose(trainingFile); // Close the file with the bad data.
+            remove(trainingFile); // And remove the bad file.
+            trainingFile = fopen(filename, "w");
+            fann_save_train(trainingData, filename);
+            fclose(filename);
+            fann_destroy_train(trainingData);
+            trainingData = fann_create_train(1, ANN_NUM_INPUT, ANN_NUM_OUTPUT);
+        }
+    }
+    else
+    {
+        // There was no training data file, so creat new training data.
+        trainingData = fann_create_train(0, ANN_NUM_INPUT, ANN_NUM_OUTPUT); // Lets start with an empty data set and then merge a new one for each trial. Perhaps slow but lets see.
+    }
+
     fann_set_activation_function_hidden(ann, FANN_SIGMOID);
     fann_set_activation_function_output(ann, FANN_SIGMOID);
     fann_set_training_algorithm(ann, FANN_TRAIN_RPROP);
 
     gtk_init (&argc, &argv);
-    
+
     /* create a new window */
     window = gtk_window_new (GTK_WINDOW_TOPLEVEL);
     gtk_container_set_border_width (GTK_CONTAINER (window), 10);
@@ -305,7 +349,7 @@ int main( int   argc,
               G_CALLBACK (delete_event), NULL);
     g_signal_connect (window, "destroy",
               G_CALLBACK (destroy), NULL);
-    
+
     drawing_area = gtk_drawing_area_new();
     gtk_widget_set_size_request(drawing_area, SIZE*ELEMENT_SIZE, SIZE*ELEMENT_SIZE);
     gtk_widget_add_events (drawing_area,
@@ -314,10 +358,10 @@ int main( int   argc,
 
     box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 10);
     drawingBox = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 10);
-    
+
     button = gtk_button_new_with_label ("Generate\nand\ncalculate");
     closeButton = gtk_button_new_with_label ("Close");
-    
+
     for (int i = 0; i < NR_OF_WAVES; i++)
     {
         char frequency[10];
@@ -325,13 +369,13 @@ int main( int   argc,
         waveEntries[i].frequencyBuffer = gtk_entry_buffer_new(frequency, 4);
         waveEntries[i].frequencyEntry = gtk_entry_new_with_buffer(waveEntries[i].frequencyBuffer);
     }
-    
+
     g_signal_connect(button, "clicked",
               G_CALLBACK (calculateAndDraw), drawing_area);
-    
+
     g_signal_connect(closeButton, "clicked",
               G_CALLBACK (destroy), NULL);
-    
+
     /* This packs the button into the window (a gtk container). */
     gtk_container_add (GTK_CONTAINER (window), drawingBox);
     gtk_box_pack_start (GTK_BOX (box), button, FALSE, FALSE, 3);
@@ -346,9 +390,17 @@ int main( int   argc,
     gtk_widget_show_all (window);
     gtk_main ();
 
+    // Save and destroy training data
+    snprintf(filename, nameLength, TRAIN_DATA_FILENAME, num_inputs, num_outputs);
+    trainingFile = fopen(filename, "w");
+    fann_save_train(trainingData, filename);
     fann_destroy_train(trainingData);
-    fann_save(ann, "pathFinding.net");
+
+    // Save and destroy ANN.
+    FILE *configurationFile = fopen("pathFinding.net");
+    fann_save(ann, configurationFile);
+    fclose(configurationFile);
     fann_destroy(ann);
-    
+
     return 0;
 }
