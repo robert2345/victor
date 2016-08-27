@@ -29,6 +29,7 @@ long_line_column=72
 
 [files]
 current_page=0
+<<<<<<< HEAD
 FILE_NAME_0=14138;C;0;EUTF-8;0;1;0;%2Fhome%2FRobert%2Frepo%2Fvictor%2Fsrc%2Fmain.c;0;4
 FILE_NAME_1=10110;C;0;EUTF-8;0;1;0;%2Fhome%2FRobert%2Frepo%2Fvictor%2Ffann%2Fsrc%2Finclude%2Ffann.h;0;4
 FILE_NAME_2=8043;C;0;EUTF-8;0;1;0;%2Fhome%2FRobert%2Frepo%2Fvictor%2Ffann%2Fsrc%2Finclude%2Ffann_data.h;0;4
@@ -36,6 +37,13 @@ FILE_NAME_3=1172;C;0;EUTF-8;0;1;0;%2Fhome%2FRobert%2Frepo%2Fvictor%2Ffann%2Fsrc%
 FILE_NAME_4=7243;C;0;EUTF-8;0;1;0;%2Fhome%2FRobert%2Frepo%2Fvictor%2Ffann%2Fsrc%2Ffann.c;0;4
 FILE_NAME_5=882;C;0;EUTF-8;0;1;0;%2Fhome%2FRobert%2Frepo%2Fvictor%2Ffann%2Fsrc%2Finclude%2Fdoublefann.h;0;4
 FILE_NAME_6=12245;C;0;EUTF-8;0;1;0;%2Fhome%2FRobert%2Frepo%2Fvictor%2Ffann%2Fsrc%2Ffann_train_data.c;0;4
+=======
+FILE_NAME_0=8596;C;0;EUTF-8;0;1;0;%2Fhome%2FRobert%2Frepo%2Fvictor%2Fsrc%2Fmain.c;0;4
+FILE_NAME_1=5883;C;0;EUTF-8;0;1;0;%2Fhome%2FRobert%2Frepo%2Fvictor%2Ffann%2Fsrc%2Finclude%2Ffann.h;0;4
+FILE_NAME_2=8043;C;0;EUTF-8;0;1;0;%2Fhome%2FRobert%2Frepo%2Fvictor%2Ffann%2Fsrc%2Finclude%2Ffann_data.h;0;4
+FILE_NAME_3=7972;C;0;EUTF-8;0;1;0;%2Fhome%2FRobert%2Frepo%2Fvictor%2Ffann%2Fsrc%2Finclude%2Ffann_train.h;0;4
+FILE_NAME_4=1172;C;0;EUTF-8;0;1;0;%2Fhome%2FRobert%2Frepo%2Fvictor%2Ffann%2Fsrc%2Ffann_io.c;0;4
+>>>>>>> a395908f46d52a6d5670257acccf15cc398305b3
 
 [VTE]
 last_dir=/home/Robert

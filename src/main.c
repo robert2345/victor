@@ -96,6 +96,7 @@ static void directionToXY(int dir, int *x, int *y)
     *y = ((dir) & 1) * sign;
 }
 
+
 static double calcCost(int parentX, int parentY, int parentRX, int parentRY, double parentIntensity)
 {
     int thisX = parentX + parentRX;
@@ -289,6 +290,7 @@ static gboolean draw_callback(GtkWidget *widget, cairo_t *cr, gpointer data)
 }
 
 
+
 // For one solution recorded in "theData" - extract data for future ANN training;
 static void extractTrainingData()
 {
@@ -299,6 +301,7 @@ static void extractTrainingData()
 
     struct fann_train_data *tmpTrainingData = fann_create_train(1, ANN_NUM_INPUT, ANN_NUM_OUTPUT);
 
+<<<<<<< HEAD
     while(n->route_x != 0 || n->route_y != 0)
     {
         intensityToInput(tmpTrainingData->input[0]);
@@ -384,7 +387,6 @@ static void trainAnn()
                        DESIRED_ERROR);
 }
 
-
 static void startGUI(int argc, char *argv[])
 {
 
@@ -408,6 +410,7 @@ static void startGUI(int argc, char *argv[])
                       G_CALLBACK(delete_event), NULL);
     g_signal_connect(window, "destroy",
                      G_CALLBACK(destroy), NULL);
+
 
     // Create the drawing area on which we will paint terrain and paths.
     drawing_area = gtk_drawing_area_new();
