@@ -28,12 +28,12 @@ long_line_behaviour=1
 long_line_column=72
 
 [files]
-current_page=4
-FILE_NAME_0=13147;C;0;EUTF-8;0;1;0;%2Fhome%2FRobert%2Frepo%2Fvictor%2Fsrc%2Fmain.c;0;4
-FILE_NAME_1=21223;C;0;EUTF-8;0;1;0;%2Fhome%2FRobert%2Frepo%2Fvictor%2Ffann%2Fsrc%2Finclude%2Ffann.h;0;4
-FILE_NAME_2=0;C;0;EUTF-8;0;1;0;%2Fhome%2FRobert%2Frepo%2Fvictor%2Ffann%2Fsrc%2Finclude%2Ffann_data.h;0;4
+current_page=0
+FILE_NAME_0=8596;C;0;EUTF-8;0;1;0;%2Fhome%2FRobert%2Frepo%2Fvictor%2Fsrc%2Fmain.c;0;4
+FILE_NAME_1=5883;C;0;EUTF-8;0;1;0;%2Fhome%2FRobert%2Frepo%2Fvictor%2Ffann%2Fsrc%2Finclude%2Ffann.h;0;4
+FILE_NAME_2=8043;C;0;EUTF-8;0;1;0;%2Fhome%2FRobert%2Frepo%2Fvictor%2Ffann%2Fsrc%2Finclude%2Ffann_data.h;0;4
 FILE_NAME_3=7972;C;0;EUTF-8;0;1;0;%2Fhome%2FRobert%2Frepo%2Fvictor%2Ffann%2Fsrc%2Finclude%2Ffann_train.h;0;4
-FILE_NAME_4=1494;C;0;EUTF-8;0;1;0;%2Fhome%2FRobert%2Frepo%2Fvictor%2Ffann%2Fsrc%2Ffann_io.c;0;4
+FILE_NAME_4=1172;C;0;EUTF-8;0;1;0;%2Fhome%2FRobert%2Frepo%2Fvictor%2Ffann%2Fsrc%2Ffann_io.c;0;4
 
 [VTE]
 last_dir=/home/Robert
