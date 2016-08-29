@@ -7,24 +7,28 @@
 #include <stdbool.h>
 
 // DEFINES
-#define SIZE 10
-#define ELEMENT_SIZE 60
+#define SIZE 20
+#define ELEMENT_SIZE 30
 #define NR_OF_WAVES 6
 #define COST_OF_ONE_STEP 0.05
 #define ANN_NUM_INPUT (SIZE * SIZE + 2)
 #define ANN_NUM_OUTPUT 4
-#define ANN_NUM_NEURONS_HIDDEN (ANN_NUM_INPUT)
-#define ANN_NUM_LAYERS 5
+#define ANN_NUM_NEURONS_HIDDEN_1 (ANN_NUM_INPUT)
+#define ANN_NUM_NEURONS_HIDDEN_2 (ANN_NUM_INPUT/8)
+#define ANN_NUM_LAYERS 4
 
 #define NAME_LENGTH 50
 #define TRAIN_DATA_FILENAME "trainingdata_%din_%dout.dat"
 #define ANN_FILENAME "ann_%din_%dout.dat"
 
-static const bool EXTEND_TRAINING_DATA = TRUE;
-static const float desired_error = (const float) 0.0001;
+#define MAX_EPOCHS 1000
+#define EPOCHS_BETWEEN_REPORTS 1
+#define DESIRED_ERROR 0.05
+#define LEARNING_RATE 0.7 // No impact on RPROP
+#define ERROR_FUNCTION FANN_ERRORFUNC_TANH
+#define ANN_TRAIN_ALGO FANN_TRAIN_RPROP
+
 static struct fann_train_data *trainingData;
-static const unsigned int max_epochs = 1;
-static const unsigned int epochs_between_reports = 1;
 static struct fann *ann;
 
 char trainDataFilename[NAME_LENGTH];
@@ -74,10 +78,12 @@ static void configureAnn(struct fann *annToConfigure)
 {
     fann_set_activation_function_hidden(annToConfigure, FANN_SIGMOID);
     fann_set_activation_function_output(annToConfigure, FANN_SIGMOID);
-    fann_set_training_algorithm(annToConfigure, FANN_TRAIN_RPROP);
+    fann_set_training_algorithm(annToConfigure, ANN_TRAIN_ALGO);
+    fann_set_learning_rate(annToConfigure, LEARNING_RATE);
+    fann_set_train_error_function(annToConfigure, ERROR_FUNCTION); 
 }
 
-static void randomizeWavFrequencies()
+static void randomizeWaveFrequencies()
 {
     // Randomize frequency of waves that build up the terrain
     for (int i = 0; i < NR_OF_WAVES; i++)
@@ -94,6 +100,11 @@ static void directionToXY(int dir, int *x, int *y)
     int sign = 1 - (dir & 2);
     *x = ((~dir) & 1) * sign;
     *y = ((dir) & 1) * sign;
+}
+
+static double costOfOneStep(double fromIntensity, double toIntensity)
+{
+	return COST_OF_ONE_STEP + fmax(fromIntensity - toIntensity, 0);
 }
 
 
@@ -133,7 +144,7 @@ static double calcCost(int parentX, int parentY, int parentRX, int parentRY, dou
 
         }
     }
-    return n->cost + COST_OF_ONE_STEP + fmax(parentIntensity - n->intensity, 0);
+    return n->cost + costOfOneStep(parentIntensity, n->intensity);
 }
 
 static bool insideAndNotChosenByAnn(const int x, const int y)
@@ -141,7 +152,7 @@ static bool insideAndNotChosenByAnn(const int x, const int y)
     if ((x < SIZE) &&
         (y < SIZE) &&
         (x >= 0) &&
-        (x >= 0) &&
+        (y >= 0) &&
         (theData[x][y].chosenByAnn == FALSE))
     {
         return TRUE;
@@ -155,14 +166,23 @@ static bool insideAndNotChosenByAnn(const int x, const int y)
 static void findNextCoord(fann_type *fann_input, int *x, int *y)
 {
     fann_run(ann, fann_input);
-    int direction = -1;
+    int direction = 0;
+    int deltaX = 0;
+    int deltaY = 0;
     fann_type value = ann->output[0];
-    for (int i = 1; i < 4; i++)
+    
+    for (int i = 0; i < 4; i++)
     {
-        if (ann->output[i] > value) direction = i;
+		fann_type tmp = ann->output[i];
+        if (tmp >= value)
+        {
+			direction = i;
+			value = tmp;
+		}
     }
-
-    directionToXY(direction, x, y);
+    directionToXY(direction, &deltaX, &deltaY);
+    *x += deltaX;
+    *y += deltaY;
 }
 
 static void intensityToInput(fann_type *input)
@@ -177,11 +197,19 @@ static void runAnn()
 {
     fann_type fann_input[ANN_NUM_INPUT];
     intensityToInput(fann_input);
-    int x, y = SIZE - 1;
-
+    int x = SIZE - 1;
+    int y = SIZE - 1;
+    double cost = 0;
+	double_t intensityOfPreviousNode = theData[x][y].intensity;
     while (insideAndNotChosenByAnn(x,y))
     {
+		cost += costOfOneStep(intensityOfPreviousNode, theData[x][y].intensity);
         theData[x][y].chosenByAnn = TRUE;
+        if (x == 0 && y == 0)
+        {
+            printf("Ann cost is %f\n", cost);
+            break;
+        }
         fann_input[SIZE * SIZE] = (fann_type)x;
         fann_input[SIZE * SIZE + 1] = (fann_type)y;
         findNextCoord(fann_input, &x,&y);
@@ -190,7 +218,6 @@ static void runAnn()
 
 static void prepareData()
 {
-    printf("Preparing the data\n");
 #define START_INTENSITY 0.5
     maxIntensity = START_INTENSITY;
     for (int w = 0; w < NR_OF_WAVES; w++)
@@ -301,16 +328,15 @@ static void extractTrainingData()
 
     struct fann_train_data *tmpTrainingData = fann_create_train(1, ANN_NUM_INPUT, ANN_NUM_OUTPUT);
 
-<<<<<<< HEAD
     while(n->route_x != 0 || n->route_y != 0)
     {
         intensityToInput(tmpTrainingData->input[0]);
         tmpTrainingData->input[0][SIZE * SIZE] = x;
         tmpTrainingData->input[0][SIZE * SIZE + 1] = y;
-        tmpTrainingData->output[0][0] = -1.0;
-        tmpTrainingData->output[0][1] = -1.0;
-        tmpTrainingData->output[0][2] = -1.0;
-        tmpTrainingData->output[0][3] = -1.0;
+        tmpTrainingData->output[0][0] = 0;
+        tmpTrainingData->output[0][1] = 0;
+        tmpTrainingData->output[0][2] = 0;
+        tmpTrainingData->output[0][3] = 0;
         tmpTrainingData->output[0][n->dir] = 1.0;
 
         // Merge the training data with existing set.
@@ -376,10 +402,6 @@ static void gatherTrainingData()
 
 static void trainAnn()
 {
-    #define MAX_EPOCHS 25
-    #define EPOCHS_BETWEEN_REPORTS 5
-    #define DESIRED_ERROR 0.1
-
     fann_train_on_data(ann,
                        trainingData,
                        MAX_EPOCHS,
@@ -446,6 +468,7 @@ static void startGUI(int argc, char *argv[])
     // Pack the buttons and field into the box. top to bottom:
     gtk_box_pack_start(GTK_BOX(box), runAnnButton, FALSE, FALSE, 3);
     gtk_box_pack_start(GTK_BOX(box), gatherDataButton, FALSE, FALSE, 3);
+    randomizeWaveFrequencies();
     for(int i = 0; i < NR_OF_WAVES; i++)
     {
         gtk_box_pack_start(GTK_BOX(box), waveEntries[i].frequencyEntry, FALSE, FALSE, 3);
@@ -482,9 +505,8 @@ int main(int argc, char *argv[])
         // Unable to load existing ann. Creating a new one.
         ann = fann_create_standard(ANN_NUM_LAYERS,
                                    ANN_NUM_INPUT,
-                                   ANN_NUM_NEURONS_HIDDEN,
-                                   ANN_NUM_NEURONS_HIDDEN,
-                                   ANN_NUM_NEURONS_HIDDEN,
+                                   ANN_NUM_NEURONS_HIDDEN_1,
+                                   ANN_NUM_NEURONS_HIDDEN_2,
                                    ANN_NUM_OUTPUT);
 
         configureAnn(ann);
@@ -500,6 +522,10 @@ int main(int argc, char *argv[])
                                          ANN_NUM_INPUT,
                                          ANN_NUM_OUTPUT); // Lets start with an empty data set and then merge a new one for each trial. Perhaps slow but lets see.
     }
+    else
+    {
+		printf("Loaded %d training sets\n", trainingData->num_data);
+	}
 
     startGUI(argc, argv);
 
