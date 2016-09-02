@@ -14,19 +14,20 @@
 #define ANN_NUM_INPUT (SIZE * SIZE + 2)
 #define ANN_NUM_OUTPUT 4
 #define ANN_NUM_NEURONS_HIDDEN_1 (ANN_NUM_INPUT)
-#define ANN_NUM_NEURONS_HIDDEN_2 (ANN_NUM_INPUT/8)
-#define ANN_NUM_LAYERS 4
+#define ANN_NUM_NEURONS_HIDDEN_2 (ANN_NUM_NEURONS_HIDDEN_1/4)
+#define ANN_NUM_NEURONS_HIDDEN_3 (ANN_NUM_NEURONS_HIDDEN_2/4)
+#define ANN_NUM_LAYERS 5
 
 #define NAME_LENGTH 50
 #define TRAIN_DATA_FILENAME "trainingdata_%din_%dout.dat"
 #define ANN_FILENAME "ann_%din_%dout.dat"
 
-#define MAX_EPOCHS 1000
-#define EPOCHS_BETWEEN_REPORTS 1
-#define DESIRED_ERROR 0.05
-#define LEARNING_RATE 0.7 // No impact on RPROP
+#define MAX_EPOCHS 4000
+#define EPOCHS_BETWEEN_REPORTS 10
+#define DESIRED_ERROR 0.01
+#define LEARNING_RATE 0.9 // No impact on RPROP
 #define ERROR_FUNCTION FANN_ERRORFUNC_TANH
-#define ANN_TRAIN_ALGO FANN_TRAIN_RPROP
+#define ANN_TRAIN_ALGO FANN_TRAIN_BATCH
 
 static struct fann_train_data *trainingData;
 static struct fann *ann;
@@ -507,6 +508,7 @@ int main(int argc, char *argv[])
                                    ANN_NUM_INPUT,
                                    ANN_NUM_NEURONS_HIDDEN_1,
                                    ANN_NUM_NEURONS_HIDDEN_2,
+                                   ANN_NUM_NEURONS_HIDDEN_3,
                                    ANN_NUM_OUTPUT);
 
         configureAnn(ann);
