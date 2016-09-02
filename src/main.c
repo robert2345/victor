@@ -5,29 +5,31 @@
 #include <string.h>
 #include <doublefann.c>
 #include <stdbool.h>
+#include <time.h>
+#include <math.h>
 
 // DEFINES
-#define SIZE 20
-#define ELEMENT_SIZE 30
+#define SIZE 35
+#define ELEMENT_SIZE (600 / SIZE)
 #define NR_OF_WAVES 6
 #define COST_OF_ONE_STEP 0.05
 #define ANN_NUM_INPUT (SIZE * SIZE + 2)
 #define ANN_NUM_OUTPUT 4
 #define ANN_NUM_NEURONS_HIDDEN_1 (ANN_NUM_INPUT)
-#define ANN_NUM_NEURONS_HIDDEN_2 (ANN_NUM_NEURONS_HIDDEN_1/4)
-#define ANN_NUM_NEURONS_HIDDEN_3 (ANN_NUM_NEURONS_HIDDEN_2/4)
+#define ANN_NUM_NEURONS_HIDDEN_2 (ANN_NUM_NEURONS_HIDDEN_1 / 3)
+#define ANN_NUM_NEURONS_HIDDEN_3 (ANN_NUM_OUTPUT * 4)
 #define ANN_NUM_LAYERS 5
 
 #define NAME_LENGTH 50
 #define TRAIN_DATA_FILENAME "trainingdata_%din_%dout.dat"
 #define ANN_FILENAME "ann_%din_%dout.dat"
 
-#define MAX_EPOCHS 4000
+#define MAX_EPOCHS 10000
 #define EPOCHS_BETWEEN_REPORTS 10
-#define DESIRED_ERROR 0.01
+#define DESIRED_ERROR 0.001
 #define LEARNING_RATE 0.9 // No impact on RPROP
 #define ERROR_FUNCTION FANN_ERRORFUNC_TANH
-#define ANN_TRAIN_ALGO FANN_TRAIN_BATCH
+#define ANN_TRAIN_ALGO FANN_TRAIN_QUICKPROP
 
 static struct fann_train_data *trainingData;
 static struct fann *ann;
@@ -67,7 +69,6 @@ typedef struct
 } wave;
 
 static dataNode theData[SIZE][SIZE] = {0};
-static double maxIntensity = 0;
 static waveEntry waveEntries[NR_OF_WAVES];
 
 static wave waves[NR_OF_WAVES] = {
@@ -220,14 +221,17 @@ static void runAnn()
 static void prepareData()
 {
 #define START_INTENSITY 0.5
-    maxIntensity = START_INTENSITY;
+    double maxIntensity = -1000;
+    double minIntensity = 10000;
     for (int w = 0; w < NR_OF_WAVES; w++)
     {
+        srand (time(NULL)); 
+        waves[w].frequency = (double)rand() / RAND_MAX / 2;
         waves[w].amplitude = (double)rand() / RAND_MAX;
         waves[w].x = (double)rand() / RAND_MAX * 2 * SIZE;
         waves[w].y = (double)rand() / RAND_MAX * 2 * SIZE;
-        maxIntensity += waves[w].amplitude;
     }
+    
     memset(theData, 0, sizeof(theData));
     for (int i = 0; i < SIZE; i++)
     {
@@ -239,8 +243,18 @@ static void prepareData()
                 double frequency = atof(gtk_entry_buffer_get_text(waveEntries[w].frequencyBuffer));
                 double distanceToSignalOrigo = sqrt(pow(waves[w].x - i, 2.0) + pow(waves[w].y - j, 2.0));
                 theData[i][j].intensity += waves[w].amplitude * sin(distanceToSignalOrigo * frequency);
-
+                maxIntensity = MAX(maxIntensity, theData[i][j].intensity);
+                minIntensity = MIN(minIntensity, theData[i][j].intensity);
             }
+        }
+    }
+    
+    //Scale the visible data
+    for (int i = 0; i < SIZE; i++)
+    {
+        for (int j = 0; j < SIZE; j++)
+        {
+            theData[i][j].intensity = (theData[i][j].intensity - minIntensity) / (maxIntensity - minIntensity); 
         }
     }
 }
@@ -278,7 +292,6 @@ static gboolean draw_callback(GtkWidget *widget, cairo_t *cr, gpointer data)
         for(int j = 0; j < SIZE; j++)
         {
             // Paint landscape or the paths chosen.
-            double intensity = theData[i][j].intensity / maxIntensity;
             if (theData[i][j].chosen && theData[i][j].chosenByAnn)
             {
                 cairo_set_source_rgb(cr, 1, 1, 0);
@@ -293,22 +306,23 @@ static gboolean draw_callback(GtkWidget *widget, cairo_t *cr, gpointer data)
             }
             else
             {
+                double intensity = theData[i][j].intensity;
                 cairo_set_source_rgb(cr,
                                      intensity,
                                      intensity,
                                      intensity);
             }
             cairo_rectangle(cr,
-                            i*ELEMENT_SIZE,
-                            j*ELEMENT_SIZE,
-                            i*ELEMENT_SIZE+ELEMENT_SIZE,
-                            j*ELEMENT_SIZE+ELEMENT_SIZE);
+                            i * ELEMENT_SIZE,
+                            j * ELEMENT_SIZE,
+                            i * ELEMENT_SIZE + ELEMENT_SIZE,
+                            j * ELEMENT_SIZE + ELEMENT_SIZE);
             cairo_fill(cr);
         }
     }
 
     gtk_style_context_get_color(context,
-                                gtk_style_context_get_state (context),
+                                gtk_style_context_get_state(context),
                                 &color);
     gdk_cairo_set_source_rgba(cr, &color);
 
@@ -324,25 +338,46 @@ static void extractTrainingData()
 {
     // Go throught the selected nodes and add trainingdata
     int x = SIZE - 1;
-    int y = x;
+    int y = SIZE - 1;
+    int currDiag;
+    double likelyhood;
     dataNode * n = &theData[x][y];
 
     struct fann_train_data *tmpTrainingData = fann_create_train(1, ANN_NUM_INPUT, ANN_NUM_OUTPUT);
 
     while(n->route_x != 0 || n->route_y != 0)
-    {
-        intensityToInput(tmpTrainingData->input[0]);
-        tmpTrainingData->input[0][SIZE * SIZE] = x;
-        tmpTrainingData->input[0][SIZE * SIZE + 1] = y;
-        tmpTrainingData->output[0][0] = 0;
-        tmpTrainingData->output[0][1] = 0;
-        tmpTrainingData->output[0][2] = 0;
-        tmpTrainingData->output[0][3] = 0;
-        tmpTrainingData->output[0][n->dir] = 1.0;
+    {       
+        /* Likelyhood of point being included in the dataset is 100%
+         * on the diagonal and 1/ numberOfPointsOnDiagonal at the
+         * start and end. */
+        
+        if (x + y > (SIZE - 1))
+        {
+            currDiag = MAX(abs(SIZE - 1 - x), (SIZE - 1 - y)); 
+        }
+        else
+        {
+            currDiag = MAX(x, y); 
+        }
+        
+        likelyhood = hypot(currDiag, currDiag) / hypot(SIZE - 1 , SIZE - 1); 
+        
+        double randomNum = (double)rand() / RAND_MAX;
 
-        // Merge the training data with existing set.
-        trainingData = fann_merge_train_data(trainingData, tmpTrainingData);
+        if ((randomNum) < likelyhood)
+        {
+            intensityToInput(tmpTrainingData->input[0]);
+            tmpTrainingData->input[0][SIZE * SIZE] = x;
+            tmpTrainingData->input[0][SIZE * SIZE + 1] = y;
+            tmpTrainingData->output[0][0] = 0;
+            tmpTrainingData->output[0][1] = 0;
+            tmpTrainingData->output[0][2] = 0;
+            tmpTrainingData->output[0][3] = 0;
+            tmpTrainingData->output[0][n->dir] = 1.0;
 
+            // Merge the training data with existing set.
+            trainingData = fann_merge_train_data(trainingData, tmpTrainingData);
+        }
         x += n->route_x;
         y += n->route_y;
         n = &theData[x][y];
@@ -354,7 +389,12 @@ static void extractTrainingData()
 static void findPath()
 {
     // Find path
-    printf("The cost from SIZE, SIZE to 0,0 is %lf\n", calcCost(SIZE-1 ,SIZE-1,0,0,theData[SIZE-1][SIZE-1].intensity));
+    printf("The cost from SIZE, SIZE to 0,0 is %lf\n",
+           calcCost(SIZE-1,
+                    SIZE-1,
+                    0,
+                    0,
+                    theData[SIZE-1][SIZE-1].intensity));
 
     // Go throught the selected nodes and mark them.
     int x = SIZE - 1;
@@ -389,16 +429,25 @@ static void tryAlgorithms(GtkWidget *widget,
     gtk_widget_queue_draw(drawing_area);
 }
 
-static void gatherTrainingData()
+static void gatherTrainingData(GtkWidget *widget,
+                          gpointer data)
 {
-    // Generate the data
-    prepareData();
+    GtkWidget *drawing_area = (GtkWidget*)data;
+    
+    for (int i = 0; i < 10; i++)
+    {
+        // Generate the data
+        prepareData();
 
-    // Run the reference algorithm
-    findPath();
+        // Run the reference algorithm
+        findPath();
 
-    // Extract training data from the results
-    extractTrainingData();
+        // Extract training data from the results
+        extractTrainingData();
+        
+        // Redraw the image
+        gtk_widget_queue_draw(drawing_area);
+    }
 }
 
 static void trainAnn()
@@ -457,7 +506,7 @@ static void startGUI(int argc, char *argv[])
               G_CALLBACK(tryAlgorithms), drawing_area);
 
     g_signal_connect(gatherDataButton, "clicked",
-              G_CALLBACK(gatherTrainingData), NULL);
+              G_CALLBACK(gatherTrainingData), drawing_area);
 
     g_signal_connect(trainButton, "clicked",
               G_CALLBACK(trainAnn), NULL);
@@ -489,8 +538,6 @@ static void startGUI(int argc, char *argv[])
 
 int main(int argc, char *argv[])
 {
-
-
     FILE *trainingFile;
     snprintf(trainDataFilename, NAME_LENGTH, TRAIN_DATA_FILENAME, ANN_NUM_INPUT, ANN_NUM_OUTPUT);
     FILE *configFile;
