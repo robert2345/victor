@@ -1,4 +1,4 @@
-TOOL = c99
+TOOL = c99 -o pathfind
 LIBS = -L ~/repo/victor/fann/src
 LIB_FILES = -l:libdoublefann.a -l:libfann.a 
 GTKLIBS = `pkg-config --libs gtk+-3.0`

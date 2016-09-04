@@ -8,6 +8,7 @@
 #include <time.h>
 #include <math.h>
 
+
 // DEFINES
 #define SIZE 35
 #define ELEMENT_SIZE (600 / SIZE)
@@ -24,9 +25,9 @@
 #define TRAIN_DATA_FILENAME "trainingdata_%din_%dout.dat"
 #define ANN_FILENAME "ann_%din_%dout.dat"
 
-#define MAX_EPOCHS 10000
+#define MAX_EPOCHS 3
 #define EPOCHS_BETWEEN_REPORTS 10
-#define DESIRED_ERROR 0.001
+#define DESIRED_ERROR 0.1
 #define LEARNING_RATE 0.9 // No impact on RPROP
 #define ERROR_FUNCTION FANN_ERRORFUNC_TANH
 #define ANN_TRAIN_ALGO FANN_TRAIN_QUICKPROP
@@ -44,6 +45,7 @@ typedef struct
     gboolean visited; // allready processed by pathf. algo.
     double cost; // The minimum cost of reaching the goal from this node
     gboolean chosen; // True menas this node is part of the path.
+    gboolean chosenBySimple;
     gboolean chosenByAnn;
     // The route chosen by the reference path finding algorithm
     int route_x; // x-componenet of the step to the next node
@@ -106,14 +108,18 @@ static void directionToXY(int dir, int *x, int *y)
 
 static double costOfOneStep(double fromIntensity, double toIntensity)
 {
-	return COST_OF_ONE_STEP + fmax(fromIntensity - toIntensity, 0);
+	return COST_OF_ONE_STEP + fmax(fromIntensity - toIntensity, 0.0);
 }
 
 
-static double calcCost(int parentX, int parentY, int parentRX, int parentRY, double parentIntensity)
+static double calcCost(int parentX, int parentY, int thisX, int thisY)
 {
-    int thisX = parentX + parentRX;
-    int thisY = parentY + parentRY;
+    int deltaX;
+    int deltaY;
+    int nextX;
+    int nextY;
+    double currentCost;
+    double parentIntensity = theData[parentX][parentY].intensity;
 
     dataNode *n = &theData[thisX][thisY];
     if (n->visited == FALSE && (thisX != 0 || thisY != 0))
@@ -124,22 +130,22 @@ static double calcCost(int parentX, int parentY, int parentRX, int parentRY, dou
         n->cost = DBL_MAX/2;
         for (int dir = 0; dir < 4; dir++)
         {
-            int r_x;
-            int r_y;
-            directionToXY(dir, &r_x, &r_y);
+            directionToXY(dir, &deltaX, &deltaY);
+            nextX = thisX + deltaX;
+            nextY = thisY + deltaY;
 
-            if ((r_x != -parentRX || r_y != -parentRY) &&
-                (thisX + r_x >= 0) &&
-                (thisY + r_y >= 0) &&
-                (thisX + r_x < SIZE) &&
-                (thisY + r_y < SIZE))
+            if ((nextX != parentX || nextY != parentY) &&
+                (nextX >= 0) &&
+                (nextY >= 0) &&
+                (nextX < SIZE) &&
+                (nextY < SIZE))
             {
-                double currentCost = calcCost(thisX, thisY, r_x, r_y, n->intensity);
+                currentCost = calcCost(thisX, thisY, nextX, nextY);
                 if(n->cost > currentCost)
                 {
                     n->cost = currentCost;
-                    n->route_x = r_x;
-                    n->route_y = r_y;
+                    n->route_x = deltaX;
+                    n->route_y = deltaY;
                     n->dir = dir;
                 }
             }
@@ -209,7 +215,7 @@ static void runAnn()
         theData[x][y].chosenByAnn = TRUE;
         if (x == 0 && y == 0)
         {
-            printf("Ann cost is %f\n", cost);
+            printf("Ann cost is %lf\n", cost);
             break;
         }
         fann_input[SIZE * SIZE] = (fann_type)x;
@@ -291,18 +297,12 @@ static gboolean draw_callback(GtkWidget *widget, cairo_t *cr, gpointer data)
     {
         for(int j = 0; j < SIZE; j++)
         {
+            dataNode *dat = &theData[i][j];
+
             // Paint landscape or the paths chosen.
-            if (theData[i][j].chosen && theData[i][j].chosenByAnn)
+            if (dat->chosen || dat->chosenByAnn || dat->chosenBySimple)
             {
-                cairo_set_source_rgb(cr, 1, 1, 0);
-            }
-            else if (theData[i][j].chosen)
-            {
-                cairo_set_source_rgb(cr, 1, 0, 0);
-            }
-            else if (theData[i][j].chosenByAnn)
-            {
-                cairo_set_source_rgb(cr, 0, 1, 0);
+                cairo_set_source_rgb(cr, (double)dat->chosen, (double)dat->chosenByAnn, (double)dat->chosenBySimple);
             }
             else
             {
@@ -312,6 +312,9 @@ static gboolean draw_callback(GtkWidget *widget, cairo_t *cr, gpointer data)
                                      intensity,
                                      intensity);
             }
+
+//            cairo_set_source_rgb(cr, dat->cost/8, dat->cost/8, dat->cost/8);
+
             cairo_rectangle(cr,
                             i * ELEMENT_SIZE,
                             j * ELEMENT_SIZE,
@@ -388,15 +391,14 @@ static void extractTrainingData()
 
 static void findPath()
 {
-    // Find path
-    printf("The cost from SIZE, SIZE to 0,0 is %lf\n",
-           calcCost(SIZE-1,
-                    SIZE-1,
-                    0,
-                    0,
-                    theData[SIZE-1][SIZE-1].intensity));
+    // Find cost of each path
+    calcCost(SIZE-1,
+             SIZE-1,
+             SIZE-1,
+             SIZE-1);
 
-    // Go throught the selected nodes and mark them.
+    // Go throught the selected nodes.
+    // Mark them and print the cost of the path from bottom right.
     int x = SIZE - 1;
     int y = x;
     dataNode * n = &theData[x][y];
@@ -408,6 +410,85 @@ static void findPath()
         y += n->route_y;
         n = &theData[x][y];
     }
+    printf("Reference cost is %lf\n", theData[SIZE - 1][SIZE - 1].cost);
+}
+
+double calcSimpleCost(double fromIntensity, double toIntensity, double targetIntensity)
+{
+    double hightLossCost = 0;
+    double stepcost = costOfOneStep(fromIntensity, toIntensity);
+    // dont go down if target is above us. We will suffer later.
+    if (stepcost == COST_OF_ONE_STEP)
+    {
+        hightLossCost = COST_OF_ONE_STEP + costOfOneStep(toIntensity, targetIntensity) - costOfOneStep(fromIntensity, targetIntensity);
+    }
+    return fmax(stepcost, hightLossCost);
+}
+
+void runSimple()
+{
+    int x = SIZE - 1;
+    int y = SIZE - 1;
+    double targetIntensity = theData[0][0].intensity;
+    double totalCost = 0.0;
+    theData[x][y].chosenBySimple = TRUE;
+    while (x != 0 || y != 0)
+    {
+        double fromIntensity = theData[x][y].intensity;
+        double upIntensity = theData[x][y - 1].intensity;
+        double leftIntensity = theData[x - 1][y].intensity;
+        double toIntensity;
+        
+        if (y == 0)
+        {
+            x--;
+            toIntensity = leftIntensity;
+            
+        }
+        else if (x == 0)
+        {
+            y--;
+            toIntensity = upIntensity;
+        }
+        else
+        {
+            double costOfUp = calcSimpleCost(fromIntensity,
+                                      upIntensity,
+                                      targetIntensity);
+            double costOfLeft = calcSimpleCost(fromIntensity,
+                                        leftIntensity,
+                                        targetIntensity);
+            if (costOfUp > costOfLeft)
+            {
+                x--;
+                toIntensity = leftIntensity;
+            }
+            else if(costOfUp < costOfLeft)
+            {
+                y--;
+                toIntensity = upIntensity;
+            }
+            else
+            {
+                // If both directions are downhill from good hight compared to target, loose as little as possible
+                // I.e. go to the lowest intensity.
+                if (leftIntensity < upIntensity)
+                {
+                    x--;
+                    toIntensity = leftIntensity;
+                }
+                else
+                {
+                    y--;
+                    toIntensity = upIntensity;
+                }
+                
+            }
+        }
+        totalCost += costOfOneStep(fromIntensity, toIntensity);
+        theData[x][y].chosenBySimple = TRUE;
+    }
+    printf("Simple cost is: %lf\n", totalCost);
 }
 
 
@@ -421,6 +502,9 @@ static void tryAlgorithms(GtkWidget *widget,
 
     // Run the reference algorithm
     findPath();
+    
+    // Run the simple algorithm
+    runSimple();
 
     // Run the Neural Network
     runAnn();
