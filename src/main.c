@@ -7,6 +7,10 @@
 #include <stdbool.h>
 #include <time.h>
 #include <math.h>
+#include <pthread.h>
+#include <mqueue.h>
+#include <fcntl.h> // O_ constants...
+#include <errno.h> // Just to be able to clear last error. Remove this include later.
 
 
 // DEFINES
@@ -32,11 +36,37 @@
 #define ERROR_FUNCTION FANN_ERRORFUNC_TANH
 #define ANN_TRAIN_ALGO FANN_TRAIN_QUICKPROP
 
+struct args{
+    int argc;
+    char ** argv;
+};
+
+static struct args arguments;
+
+typedef enum{
+    ACTION_RUN,
+    ACTION_TRAIN,
+    ACTION_GATHER,
+    ACTION_CLOSE,
+    ACTION_NR_OF
+} actionEnum;
+
+actionEnum actions[ACTION_NR_OF] =
+{
+    [ACTION_RUN] = ACTION_RUN,
+    [ACTION_TRAIN] = ACTION_TRAIN,
+    [ACTION_GATHER] = ACTION_GATHER,
+    [ACTION_CLOSE] = ACTION_CLOSE
+};
+
+static bool g_stopTraining = FALSE;
+static GtkWidget *drawingArea;
 static struct fann_train_data *trainingData;
 static struct fann *ann;
+const char messageQueuePath[] = "/pathFinderMessageQueue1";
 
-char trainDataFilename[NAME_LENGTH];
-char configFilename[NAME_LENGTH];
+static char trainDataFilename[NAME_LENGTH];
+static char configFilename[NAME_LENGTH];
 
 typedef struct
 {
@@ -78,6 +108,30 @@ static wave waves[NR_OF_WAVES] = {
     {.amplitude = 0.25, .frequency = 0.3, .x = SIZE / 3, .y = -3},
     {.amplitude = 0.15, .frequency = 0.52, .x = SIZE / 4, .y = SIZE / 2}};
 
+FANN_EXTERNAL typedef int (FANN_API * fann_callback_type) (struct fann *ann, struct fann_train_data *train, 
+														   unsigned int max_epochs, 
+														   unsigned int epochs_between_reports, 
+														   float desired_error, unsigned int epochs);
+
+int PrintStatusAndConsiderStop(struct fann *ann, struct fann_train_data *train, 
+                               unsigned int max_epochs, 
+                               unsigned int epochs_between_reports, 
+                               float desired_error, 
+                               unsigned int epochs)
+{
+    printf("Epochs     %8d. Current error: %.10f. Bit fail %d.\n",
+           epochs,
+           desired_error,
+           ann->num_bit_fail);
+    if (g_stopTraining == TRUE)
+    {
+        g_stopTraining = FALSE;
+        return -1;
+    }
+    
+    return 0;
+}
+
 static void configureAnn(struct fann *annToConfigure)
 {
     fann_set_activation_function_hidden(annToConfigure, FANN_SIGMOID);
@@ -85,6 +139,7 @@ static void configureAnn(struct fann *annToConfigure)
     fann_set_training_algorithm(annToConfigure, ANN_TRAIN_ALGO);
     fann_set_learning_rate(annToConfigure, LEARNING_RATE);
     fann_set_train_error_function(annToConfigure, ERROR_FUNCTION); 
+    fann_set_callback(annToConfigure, PrintStatusAndConsiderStop);
 }
 
 static void randomizeWaveFrequencies()
@@ -231,7 +286,7 @@ static void prepareData()
     double minIntensity = 10000;
     for (int w = 0; w < NR_OF_WAVES; w++)
     {
-        srand (time(NULL)); 
+        srand(time(NULL)); 
         waves[w].frequency = (double)rand() / RAND_MAX / 2;
         waves[w].amplitude = (double)rand() / RAND_MAX;
         waves[w].x = (double)rand() / RAND_MAX * 2 * SIZE;
@@ -246,6 +301,7 @@ static void prepareData()
             theData[i][j].intensity = START_INTENSITY;
             for (int w = 0; w < NR_OF_WAVES; w++)
             {
+                srand(time(NULL));
                 double frequency = atof(gtk_entry_buffer_get_text(waveEntries[w].frequencyBuffer));
                 double distanceToSignalOrigo = sqrt(pow(waves[w].x - i, 2.0) + pow(waves[w].y - j, 2.0));
                 theData[i][j].intensity += waves[w].amplitude * sin(distanceToSignalOrigo * frequency);
@@ -492,11 +548,8 @@ void runSimple()
 }
 
 
-static void tryAlgorithms(GtkWidget *widget,
-                          gpointer data)
+static void tryAlgorithms()
 {
-    GtkWidget *drawing_area = (GtkWidget*)data;
-
     // Generate the data
     prepareData();
 
@@ -510,14 +563,11 @@ static void tryAlgorithms(GtkWidget *widget,
     runAnn();
 
     // Redraw
-    gtk_widget_queue_draw(drawing_area);
+    gtk_widget_queue_draw(drawingArea);
 }
 
-static void gatherTrainingData(GtkWidget *widget,
-                          gpointer data)
+static void gatherTrainingData()
 {
-    GtkWidget *drawing_area = (GtkWidget*)data;
-    
     for (int i = 0; i < 10; i++)
     {
         // Generate the data
@@ -530,7 +580,7 @@ static void gatherTrainingData(GtkWidget *widget,
         extractTrainingData();
         
         // Redraw the image
-        gtk_widget_queue_draw(drawing_area);
+        gtk_widget_queue_draw(drawingArea); // IS THIS SAFE IN MULTITHREAD?
     }
 }
 
@@ -543,21 +593,46 @@ static void trainAnn()
                        DESIRED_ERROR);
 }
 
-static void startGUI(int argc, char *argv[])
+void AbortTraining()
 {
+    g_stopTraining = TRUE;
+}
 
+void sendMsg(GtkWidget *clickedWidget, actionEnum *actionToTake)
+{
+    mqd_t messageQueue;
+    int ret;
+    messageQueue = mq_open(messageQueuePath, O_WRONLY);
+    if (messageQueue == -1)
+    {
+        perror("sendMsg1: ");
+    }
+    ret = mq_send(messageQueue, (char*)actionToTake, sizeof(actionEnum), 0);
+    if (ret == -1)
+    {
+        perror("sendMsg2: ");
+    }
+    
+    if (*actionToTake == ACTION_CLOSE)
+    {
+        gtk_main_quit();
+    }
+}
+
+static void startGUI(void *dummy)
+{
     GtkWidget *window;
     // Buttons:
     GtkWidget *runAnnButton;
     GtkWidget *gatherDataButton;
     GtkWidget *trainButton;
     GtkWidget *closeButton;
+    GtkWidget *stopButton;
 
-    GtkWidget *drawing_area;
     GtkWidget *box;
     GtkWidget *drawingBox;
 
-    gtk_init(&argc, &argv);
+    gtk_init(&arguments.argc, &arguments.argv);
 
     /* create a new window */
     window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
@@ -569,11 +644,11 @@ static void startGUI(int argc, char *argv[])
 
 
     // Create the drawing area on which we will paint terrain and paths.
-    drawing_area = gtk_drawing_area_new();
-    gtk_widget_set_size_request(drawing_area, SIZE*ELEMENT_SIZE, SIZE*ELEMENT_SIZE);
-    gtk_widget_add_events(drawing_area,
+    drawingArea = gtk_drawing_area_new();
+    gtk_widget_set_size_request(drawingArea, SIZE*ELEMENT_SIZE, SIZE*ELEMENT_SIZE);
+    gtk_widget_add_events(drawingArea,
                           GDK_BUTTON_PRESS_MASK);
-    g_signal_connect(G_OBJECT(drawing_area), "draw", G_CALLBACK(draw_callback), NULL);
+    g_signal_connect(G_OBJECT(drawingArea), "draw", G_CALLBACK(draw_callback), NULL);
 
     // Create a box (container) for the buttons and fields.
     box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
@@ -584,19 +659,25 @@ static void startGUI(int argc, char *argv[])
     gatherDataButton = gtk_button_new_with_label("Gather training data");
     trainButton = gtk_button_new_with_label("Train Neural Net");
     closeButton = gtk_button_new_with_label("Close");
+    stopButton = gtk_button_new_with_label("Stop training");
 
     // Assign tasks for the buttons
     g_signal_connect(runAnnButton, "clicked",
-              G_CALLBACK(tryAlgorithms), drawing_area);
-
+                     G_CALLBACK(sendMsg),
+                     &actions[ACTION_RUN]);
     g_signal_connect(gatherDataButton, "clicked",
-              G_CALLBACK(gatherTrainingData), drawing_area);
-
+                     G_CALLBACK(sendMsg),
+                     &actions[ACTION_GATHER]);
     g_signal_connect(trainButton, "clicked",
-              G_CALLBACK(trainAnn), NULL);
-
+                     G_CALLBACK(sendMsg),
+                     &actions[ACTION_TRAIN]);
     g_signal_connect(closeButton, "clicked",
-              G_CALLBACK(destroy), NULL);
+                     G_CALLBACK(sendMsg),
+                     &actions[ACTION_CLOSE]);
+    g_signal_connect(stopButton, "clicked",
+                     G_CALLBACK(AbortTraining),
+                     NULL);          
+
 
 
     // Pack the buttons and field into the box. top to bottom:
@@ -608,20 +689,81 @@ static void startGUI(int argc, char *argv[])
         gtk_box_pack_start(GTK_BOX(box), waveEntries[i].frequencyEntry, FALSE, FALSE, 3);
     }
     gtk_box_pack_start(GTK_BOX(box), trainButton, FALSE, FALSE, 3);
+    gtk_box_pack_start(GTK_BOX(box), stopButton, FALSE, FALSE, 3);
     gtk_box_pack_start(GTK_BOX(box), closeButton, FALSE, FALSE, 3);
 
     /* This packs the  box and drawingBox into the window (a gtk container). */
     gtk_box_pack_start(GTK_BOX(drawingBox), box, FALSE, FALSE, 3);
-    gtk_box_pack_start(GTK_BOX(drawingBox), drawing_area, FALSE, FALSE, 3);
+    gtk_box_pack_start(GTK_BOX(drawingBox), drawingArea, FALSE, FALSE, 3);
     gtk_container_add(GTK_CONTAINER (window), drawingBox);
 
     gtk_widget_show_all(window);
     gtk_main();
 }
 
+void model(void *dummy)
+{
+    mqd_t messageQueue;
+    bool receiveMessages = TRUE;
+    int ret = 0;
+    
+    typedef union
+    {
+        actionEnum action;
+        uint8_t buf[10 * sizeof(actionEnum)];
+    } messageBuf;
+    
+    messageBuf message;
+    
+    messageQueue = mq_open(messageQueuePath, (O_RDONLY));
+    if (messageQueue == -1)
+    {            
+        perror("Opening message queue in Model:");
+    }
+    
+    while(receiveMessages)
+    {
+        ret = mq_receive(messageQueue, (char*)&message.buf[0], sizeof(message), NULL);
+        if (ret == -1)
+        {
+            perror("Model");    
+        }
+        else
+        {
+            switch (message.action)
+            {
+                case ACTION_CLOSE:
+                    receiveMessages = FALSE;
+                    break;
+                case ACTION_GATHER:
+                    gatherTrainingData();
+                    break;
+                case ACTION_TRAIN:
+                    g_stopTraining = FALSE;
+                    trainAnn();
+                    break;
+                case ACTION_RUN:
+                    tryAlgorithms();
+                    break;
+            }
+        }
+    }
+    
+    mq_close(messageQueue);
+    
+}
+
 
 int main(int argc, char *argv[])
 {
+    arguments.argc = argc;
+    arguments.argv = argv;
+    
+    pthread_t guiThread;
+    pthread_t modelThread;
+    int ret;
+    mqd_t messageQueue;
+    
     FILE *trainingFile;
     snprintf(trainDataFilename, NAME_LENGTH, TRAIN_DATA_FILENAME, ANN_NUM_INPUT, ANN_NUM_OUTPUT);
     FILE *configFile;
@@ -660,15 +802,47 @@ int main(int argc, char *argv[])
 		printf("Loaded %d training sets\n", trainingData->num_data);
 	}
 
-    startGUI(argc, argv);
+    struct mq_attr attr;  
+    attr.mq_flags = 0;  
+    attr.mq_maxmsg = 10;  
+    attr.mq_msgsize = sizeof(actionEnum);  
+    attr.mq_curmsgs = 0;
+    messageQueue = mq_open(messageQueuePath, (int)(O_CREAT | O_RDWR), 0666, &attr);
+    
+    if (messageQueue == -1)
+    {
+        perror("main: ");
+    }
+    else
+    {
+        ret |= pthread_create(&guiThread, NULL, (void *)startGUI, NULL);
+        ret |= pthread_create(&modelThread, NULL, (void *)model, NULL);
+
+        if (ret == 0)
+        {
+            pthread_join(guiThread, NULL);
+            pthread_join(modelThread, NULL);
+        }
+        else
+        {
+            printf("Something went wrong. Start guessing...\n");
+        }
+    }
+    
+    ret = mq_close(messageQueue);
+    if (ret == -1) perror("Closing mq");
 
     // Save and destroy training data
-    fann_save_train(trainingData, trainDataFilename);
+    ret = fann_save_train(trainingData, trainDataFilename);
+    if (ret == -1) perror("Save train");
     fann_destroy_train(trainingData);
+    if (ret == -1) perror("Destroy train");
 
     // Save and destroy ANN.
     fann_save(ann, configFilename);
+    if (ret == -1) perror("Save ANN");
     fann_destroy(ann);
-
+    if (ret == -1) perror("Destroy ANN");
+    
     return 0;
 }
