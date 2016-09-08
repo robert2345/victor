@@ -1,4 +1,5 @@
 TOOL = c99 -o pathfind
+TOOL_DEBUG = c99 -o pathfind_debug -g
 LIBS = -L ~/repo/victor/fann/src
 LIB_FILES = -l:libdoublefann.a -l:libfann.a 
 GTKLIBS = `pkg-config --libs gtk+-3.0`
@@ -14,13 +15,11 @@ INCLUDES = $(addprefix -I, $(INCLUDE_DIRS))
 OBJS = $(SOURCES:.c=.o)
 
 
-#Make targets for all object files
-#($ foreach
-#$(OBJS):$(HEADERS)
-	#$(TOOL) $(%: .o=.c)
 
+all: debug pathfind
 
-all: $(SOURCES) $(HEADERS)
-	#cmake ./fann/.
-	#make ./fann/
+pathfind:
 	$(TOOL) $(SOURCES) -I$(EXTRA_SOURCE) $(INCLUDES) $(GTKLIBS) $(CFLAGS)
+
+debug:
+	$(TOOL_DEBUG) $(SOURCES) -I$(EXTRA_SOURCE) $(INCLUDES) $(GTKLIBS) $(CFLAGS)
