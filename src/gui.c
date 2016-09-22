@@ -39,6 +39,7 @@ static void destroy(GtkWidget *widget,
 
 static void AbortTraining(void)
 {
+	printf("Trying to abort training.");
 	ModelSetStopTraining(TRUE);
 }
 

@@ -9,7 +9,7 @@
 #include <model.h>
 
 #define SIZE 35
-const char messageQueuePath[] = "/pathFinderMessageQueue1";
+const char messageQueuePath[] = "/pathFinderMessageQueue4";
 
 static void TryAlgorithms()
 {
@@ -31,20 +31,14 @@ static void TryAlgorithms()
 
 static void GatherTrainingData()
 {
-    for (int i = 0; i < 10; i++)
-    {
-        // Generate the data
-        ModelPrepareData();
 
-        // Run the reference algorithm
-        ModelRunReferenceAlgo();
 
         // Extract training data from the results
         ModelExtractTrainingData();
         
         // Redraw the image
         GUI_Redraw();
-    }
+    
 }
 
 
@@ -108,15 +102,16 @@ int main(int argc, char *argv[])
     mqd_t messageQueue;
     struct mq_attr attr;
 
-    GUI_Initialization(argc, argv, messageQueuePath, SIZE);
-    ModelSetup(messageQueuePath, SIZE);
-    
-    attr.mq_flags = 0;  
+	attr.mq_flags = 0;  
     attr.mq_maxmsg = 10;  
     attr.mq_msgsize = sizeof(actionEnum);  
     attr.mq_curmsgs = 0;
     messageQueue = mq_open(messageQueuePath, (int)(O_CREAT | O_RDWR), 0666, &attr);
+
+    GUI_Initialization(argc, argv, messageQueuePath, SIZE);
+    ModelSetup(messageQueuePath, SIZE);
     
+
     if (messageQueue == -1)
     {
         perror("main: ");

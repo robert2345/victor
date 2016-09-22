@@ -1,25 +1,30 @@
-TOOL = c99 -o pathfind
-TOOL_DEBUG = c99 -o pathfind_debug -g
-LIBS = -L ~/repo/victor/fann/src
-LIB_FILES = -l:libdoublefann.a -l:libfann.a 
+NAME = pathfind
+TESTNAME = $(NAME)_test
+
 GTKLIBS = `pkg-config --libs gtk+-3.0`
-CFLAGS = `pkg-config --cflags gtk+-3.0` -lm -fopenmp
+CFLAGS += `pkg-config --cflags gtk+-3.0` -lm -fopenmp
 
+SOURCE = $(wildcard ./src/*.c)
 
-SOURCES = ./src/*.c
+TESTSOURCE = $(wildcard ./src/test/*.c )
+OBJS = ${$(SOURCE), .c=.o}
+
 EXTRA_SOURCE = ./fann/src/
-INCLUDE_DIRS = ./inc/ ./fann/src/include/
-HEADERS = $(addsuffix *.h, $(INCLUDE_DIRS))
-INCLUDES = $(addprefix -I, $(INCLUDE_DIRS))
 
-OBJS = $(SOURCES:.c=.o)
+INCLUDE_DIRS = ./fann/src/include/ ./inc/
 
+CFLAGS += -std=c99 
+CFLAGS += $(foreach includedir,$(INCLUDE_DIRS),-I$(includedir))
+LDFLAGS += $(addprefix -I, $(INCLUDE_DIRS) $(EXTRA_SOURCE))
 
+all: $(NAME)
 
-all: debug pathfind
+$(NAME): $(SOURCE) $(OBJS)
+	$(CC) $(CFLAGS) $(SOURCE) -o $(NAME) $(LDFLAGS) $(GTKLIBS) 
 
-pathfind:
-	$(TOOL) $(SOURCES) -I$(EXTRA_SOURCE) $(INCLUDES) $(GTKLIBS) $(CFLAGS)
+debug: $(SOURCE) $(OBJS)
+	$(CC) -g $(CFLAGS) $(SOURCE) -o $(NAME)_debug $(LDFLAGS) $(GTKLIBS) 
+    
+clean:
+	rm -rf $(OBJS) $(NAME) $(TEST_OBJS) $(TESTNAME)
 
-debug:
-	$(TOOL_DEBUG) $(SOURCES) -I$(EXTRA_SOURCE) $(INCLUDES) $(GTKLIBS) $(CFLAGS)
