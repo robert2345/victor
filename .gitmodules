@@ -1,3 +1,6 @@
 [submodule "fann"]
 	path = fann
 	url = https://github.com/libfann/fann.git
+[submodule "Criterion"]
+	path = Criterion
+	url = https://github.com/Snaipe/Criterion.git

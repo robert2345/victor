@@ -3,6 +3,7 @@
 #include <fcntl.h> // O_ constants...
 #include <gtk/gtk.h>
 #include <model.h>
+#include <math.h>
 
 struct args{
     int argc;
@@ -39,8 +40,8 @@ static void destroy(GtkWidget *widget,
 
 static void AbortTraining(void)
 {
-	printf("Trying to abort training.");
-	ModelSetStopTraining(TRUE);
+    printf("Trying to abort training.");
+    ModelSetStopTraining(TRUE);
 }
 
 static gboolean DrawCallback(GtkWidget *widget, cairo_t *cr, gpointer data)
@@ -58,25 +59,71 @@ static gboolean DrawCallback(GtkWidget *widget, cairo_t *cr, gpointer data)
     double blue;
 
     gtk_render_background(context, cr, 0, 0, width, height);
-    for (int i = 0; i < g_size; i++)
+    // If we are training, draw the progress
+    if (ModelCheckTrainingOngoing())
     {
-        for(int j = 0; j < g_size; j++)
+        cairo_set_source_rgb(cr, 1.0, 0, 0);
+        cairo_set_line_width(cr, 1);
+        printf("drawing training\n");
+        int xMax = g_size * g_elementSize - 1;
+        double dataMax = 0.0;
+        double thisDatapoint;
+        double lastDatapoint;
+        for (int x = 0; x < xMax; x++)
         {
-			ModelGetRGB(i, j, &red, &green, &blue);
-			cairo_set_source_rgb(cr,
-								 red,
-								 green,
-								 blue);
-		
-            cairo_rectangle(cr,
-                            i * g_elementSize,
-                            j * g_elementSize,
-                            i * g_elementSize + g_elementSize,
-                            j * g_elementSize + g_elementSize);
-            cairo_fill(cr);
+            lastDatapoint = thisDatapoint;
+            thisDatapoint = ModelGetTrainingResults(x, xMax);
+            dataMax = fmax(thisDatapoint, dataMax);
+            if (x == 0)
+            {
+                thisDatapoint = thisDatapoint / dataMax * xMax;
+            }
+            else
+            {
+                thisDatapoint = thisDatapoint / dataMax * xMax;
+
+                // Draw line between the this and last
+                cairo_move_to(cr, (x - 1), lastDatapoint);
+                cairo_line_to(cr, x, thisDatapoint);
+            }
+        }
+
+        cairo_stroke(cr);
+
+        cairo_select_font_face(cr, "Purisa",
+        CAIRO_FONT_SLANT_NORMAL,
+        CAIRO_FONT_WEIGHT_BOLD);
+
+        cairo_set_font_size(cr, 13);
+
+        char myString[60];
+        sprintf(myString, "Number of bad bits in last epoch: %d", (int)thisDatapoint);
+        cairo_move_to(cr, xMax - 13 * 40, 26);
+        cairo_show_text(cr, myString);
+    }
+    else
+    {
+        printf("Drawing the normal stuff\n");
+        //Else we draw the result
+        for (int i = 0; i < g_size; i++)
+        {
+            for(int j = 0; j < g_size; j++)
+            {
+                ModelGetRGB(i, j, &red, &green, &blue);
+                cairo_set_source_rgb(cr,
+                                     red,
+                                     green,
+                                     blue);
+
+                cairo_rectangle(cr,
+                                i * g_elementSize,
+                                j * g_elementSize,
+                                i * g_elementSize + g_elementSize,
+                                j * g_elementSize + g_elementSize);
+                cairo_fill(cr);
+            }
         }
     }
-
     gtk_style_context_get_color(context,
                                 gtk_style_context_get_state(context),
                                 &color);
@@ -91,13 +138,13 @@ static void SendMessages(GtkWidget *clickedWidget, actionEnum *actionToTake)
 {
     mqd_t messageQueue;
     int ret;
-    
+
     messageQueue = mq_open(g_messageQueuePath_p, O_WRONLY);
     if (messageQueue == -1) perror("SendMessages mq_open");
-    
+
     ret = mq_send(messageQueue, (char*)actionToTake, sizeof(actionEnum), 0);
     if (ret == -1) perror("SendMessages mq_send");
-    
+
     if (*actionToTake == ACTION_CLOSE)
     {
         gtk_main_quit();
@@ -106,7 +153,7 @@ static void SendMessages(GtkWidget *clickedWidget, actionEnum *actionToTake)
 
 void GUI_Redraw()
 {
-	gtk_widget_queue_draw(g_drawingArea); // IS THIS SAFE IN MULTITHREAD?
+    gtk_widget_queue_draw(g_drawingArea); // IS THIS SAFE IN MULTITHREAD?
 }
 
 void GUI_Initialization(int argc, char *argv[], const char *messageQueuePath, int size)
@@ -114,8 +161,8 @@ void GUI_Initialization(int argc, char *argv[], const char *messageQueuePath, in
     arguments.argc = argc;
     arguments.argv = argv;
     g_messageQueuePath_p = messageQueuePath;
-	g_size = size;
-	g_elementSize = (600 / size);
+    g_size = size;
+    g_elementSize = (600 / size);
 }
 
 void GUI_Start(void *dummy)
@@ -130,9 +177,9 @@ void GUI_Start(void *dummy)
 
     GtkWidget *box;
     GtkWidget *drawingBox;
-    
+
     gtk_init(&arguments.argc, &arguments.argv);
-    
+
     /* create a new window */
     window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     gtk_container_set_border_width(GTK_CONTAINER(window), 10);
@@ -144,8 +191,8 @@ void GUI_Start(void *dummy)
     // Create the drawing area on which we will paint terrain and paths.
     g_drawingArea = gtk_drawing_area_new();
     gtk_widget_set_size_request(g_drawingArea,
-								g_size * g_elementSize,
-								g_size * g_elementSize);
+                                g_size * g_elementSize,
+                                g_size * g_elementSize);
     gtk_widget_add_events(g_drawingArea,
                           GDK_BUTTON_PRESS_MASK);
     g_signal_connect(G_OBJECT(g_drawingArea), "draw", G_CALLBACK(DrawCallback), NULL);
@@ -176,7 +223,7 @@ void GUI_Start(void *dummy)
                      &actions[ACTION_CLOSE]);
     g_signal_connect(stopButton, "clicked",
                      G_CALLBACK(AbortTraining),
-                     NULL);          
+                     NULL);
 
     // Pack the buttons and field into the box. top to bottom:
     gtk_box_pack_start(GTK_BOX(box), runAnnButton, FALSE, FALSE, 3);
@@ -189,8 +236,8 @@ void GUI_Start(void *dummy)
     gtk_box_pack_start(GTK_BOX(drawingBox), box, FALSE, FALSE, 3);
     gtk_box_pack_start(GTK_BOX(drawingBox), g_drawingArea, FALSE, FALSE, 3);
     gtk_container_add(GTK_CONTAINER (window), drawingBox);
-	
+
     gtk_widget_show_all(window);
-    
+
     gtk_main();
 }

@@ -9,7 +9,14 @@
 #include <model.h>
 
 #define SIZE 35
-const char messageQueuePath[] = "/pathFinderMessageQueue4";
+
+typedef union
+{
+    actionEnum action;
+    uint8_t buf[10 * sizeof(actionEnum)];
+} messageBuf;
+
+const char messageQueuePath[] = "/pathFinderMessageQueue6";
 
 static void TryAlgorithms()
 {
@@ -18,7 +25,7 @@ static void TryAlgorithms()
 
     // Run the reference algorithm
     ModelRunReferenceAlgo();
-    
+
     // Run the simple algorithm
     ModelRunSimpleAlgo();
 
@@ -35,10 +42,10 @@ static void GatherTrainingData()
 
         // Extract training data from the results
         ModelExtractTrainingData();
-        
+
         // Redraw the image
         GUI_Redraw();
-    
+
 }
 
 
@@ -47,27 +54,21 @@ static void ReceiveMessages(void *dummy)
     mqd_t messageQueue;
     bool receiveMessages = true;
     int ret = 0;
-    
-    typedef union
-    {
-        actionEnum action;
-        uint8_t buf[10 * sizeof(actionEnum)];
-    } messageBuf;
-    
+
     messageBuf message;
-    
+
     messageQueue = mq_open(messageQueuePath, (O_RDONLY));
     if (messageQueue == -1)
-    {            
+    {
         perror("Opening message queue in Model:");
     }
-    
+
     while(receiveMessages)
     {
         ret = mq_receive(messageQueue, (char*)&message.buf[0], sizeof(message), NULL);
         if (ret == -1)
         {
-            perror("Model");    
+            perror("Model");
         }
         else
         {
@@ -88,7 +89,7 @@ static void ReceiveMessages(void *dummy)
             }
         }
     }
-    
+
     mq_close(messageQueue);
 }
 
@@ -102,15 +103,21 @@ int main(int argc, char *argv[])
     mqd_t messageQueue;
     struct mq_attr attr;
 
-	attr.mq_flags = 0;  
-    attr.mq_maxmsg = 10;  
-    attr.mq_msgsize = sizeof(actionEnum);  
+    attr.mq_flags = 0;
+    attr.mq_maxmsg = 10;
+    attr.mq_msgsize = sizeof(actionEnum);
     attr.mq_curmsgs = 0;
+    messageBuf message;
+    struct timespec wait = {0, 100000000};
+
     messageQueue = mq_open(messageQueuePath, (int)(O_CREAT | O_RDWR), 0666, &attr);
+    while (mq_timedreceive(messageQueue, (char*)&message,
+                   sizeof(message), NULL,
+                   &wait) != -1);
 
     GUI_Initialization(argc, argv, messageQueuePath, SIZE);
     ModelSetup(messageQueuePath, SIZE);
-    
+
 
     if (messageQueue == -1)
     {
@@ -131,11 +138,11 @@ int main(int argc, char *argv[])
             printf("Something went wrong. Start guessing...\n");
         }
     }
-    
+
     ret = mq_close(messageQueue);
     if (ret == -1) perror("Closing mq");
 
     ModelTakeDown();
-    
+
     return 0;
 }

@@ -29,6 +29,9 @@
 
 
 /* Internal Variables */
+bool g_trainingOngoing = false;
+double g_trainLevel[2000];
+int g_numberOfTrainLevels = 0;
 typedef struct
 {
     // Data used as input to the pathfinding
@@ -36,7 +39,7 @@ typedef struct
     bool chosenByReference; // True menas this node is part of the path.
     bool chosenBySimple;
     bool chosenByAnn;
-    
+
     bool visited; // allready processed by pathf. algo.
     double cost; // The minimum cost of reaching the goal from this node
 
@@ -44,7 +47,7 @@ typedef struct
     int route_x; // x-componenet of the step to the next node
     int route_y; // y-component of the step to the next node
     int dir; // direction to the next node. North east south or west
-    
+
     //The route chosen by the ANN
     int annRoute_x; // x-componenet of the step to the next node
     int annRoute_y; // y-component of the step to the next node
@@ -69,16 +72,16 @@ static int g_size = 0;
 static int g_annNumOfInputs = 0;
 
 /* Function prototypes */
-int PrintStatusAndConsiderStop(struct fann *ann, struct fann_train_data *train, 
-                               unsigned int max_epochs, 
-                               unsigned int epochs_between_reports, 
-                               float desired_error, 
+int PrintStatusAndConsiderStop(struct fann *ann, struct fann_train_data *train,
+                               unsigned int max_epochs,
+                               unsigned int epochs_between_reports,
+                               float desired_error,
                                unsigned int epochs);
 
 /* Internal functions */
 static dataNode* GetNodePointer(int x, int y)
 {
-	return &theData[y * g_size + x];
+    return &theData[y * g_size + x];
 }
 
 static void ConfigureAnn()
@@ -87,7 +90,7 @@ static void ConfigureAnn()
     fann_set_activation_function_output(g_ann, FANN_SIGMOID);
     fann_set_training_algorithm(g_ann, ANN_TRAIN_ALGO);
     fann_set_learning_rate(g_ann, LEARNING_RATE);
-    fann_set_train_error_function(g_ann, ERROR_FUNCTION); 
+    fann_set_train_error_function(g_ann, ERROR_FUNCTION);
     fann_set_callback(g_ann, PrintStatusAndConsiderStop);
 }
 
@@ -108,7 +111,7 @@ static void DirectionToVector(int dir, int *x, int *y)
 
 static double GetCostOfStep(double fromIntensity, double toIntensity)
 {
-	return COST_OF_ONE_STEP + fmax(fromIntensity - toIntensity, 0.0);
+    return COST_OF_ONE_STEP + fmax(fromIntensity - toIntensity, 0.0);
 }
 
 static double CalcCost(int parentX, int parentY, int thisX, int thisY)
@@ -188,15 +191,15 @@ static void TakeOneStepWithAnn(fann_type *fann_input, int *x, int *y)
     int deltaX = 0;
     int deltaY = 0;
     fann_type value = g_ann->output[0];
-    
+
     for (int i = 0; i < 4; i++)
     {
-		fann_type tmp = g_ann->output[i];
+        fann_type tmp = g_ann->output[i];
         if (tmp >= value)
         {
-			direction = i;
-			value = tmp;
-		}
+            direction = i;
+            value = tmp;
+        }
     }
     DirectionToVector(direction, &deltaX, &deltaY);
     *x += deltaX;
@@ -204,10 +207,10 @@ static void TakeOneStepWithAnn(fann_type *fann_input, int *x, int *y)
 }
 
 /* External functions */
-int FANN_API PrintStatusAndConsiderStop(struct fann *ann, struct fann_train_data *train, 
-                               unsigned int max_epochs, 
-                               unsigned int epochs_between_reports, 
-                               float desired_error, 
+int FANN_API PrintStatusAndConsiderStop(struct fann *ann, struct fann_train_data *train,
+                               unsigned int max_epochs,
+                               unsigned int epochs_between_reports,
+                               float desired_error,
                                unsigned int epochs)
 {
     printf("Epoch nr: %8d. Current error: %.10f. Bit fail %d.\n",
@@ -219,24 +222,39 @@ int FANN_API PrintStatusAndConsiderStop(struct fann *ann, struct fann_train_data
         ModelSetStopTraining(false);
         return -1;
     }
-    
+
+    g_trainLevel[g_numberOfTrainLevels] = ann->num_bit_fail;
+    g_numberOfTrainLevels++;
+    if (g_numberOfTrainLevels == 2000)
+    {
+        // Some way of keeping a resonable number of datapoints for plotting.
+        for (int i = 0; i < 2000; i = i + 2)
+        {
+            g_trainLevel[i/2] = g_trainLevel[i];
+        }
+        g_numberOfTrainLevels = 1000;
+    }
+    GUI_Redraw();
+
     return 0;
 }
 
 void ModelTrainAnn()
 {
+    g_trainingOngoing = true;
     fann_train_on_file(g_ann,
                        g_trainDataFilename,
                        MAX_EPOCHS,
                        EPOCHS_BETWEEN_REPORTS,
                        DESIRED_ERROR);
+    g_trainingOngoing = false;
 }
 
 void ModelTakeDown()
 {
-	int ret = 0;
-	
-	free(theData);
+    int ret = 0;
+
+    free(theData);
 
     // Save and destroy ANN.
     fann_save(g_ann, g_configFilename);
@@ -249,33 +267,33 @@ void ModelSetup(const char *messageQueuePath, int size)
 {
     FILE *trainingFile;
     FILE *configFile;
-    
+
     g_messageQueuePath_p = messageQueuePath;
     g_size = size;
     g_annNumOfInputs = (g_size * g_size + 2);
 
-	srand(time(NULL));
-	
-	// Setup the data filenames according to ANN config
-	snprintf(g_trainDataFilename, NAME_LENGTH, TRAIN_DATA_FILENAME, g_annNumOfInputs, ANN_NUM_OUTPUT);
-	snprintf(g_configFilename, NAME_LENGTH, ANN_FILENAME, g_annNumOfInputs, ANN_NUM_OUTPUT);
+    srand(time(NULL));
 
-	theData = (dataNode*)calloc(g_size * g_size, sizeof(dataNode));
-	if (theData == NULL)
-	{
-		printf("Allocation of memory to the data failed\n");
-		exit (1);
-	}
+    // Setup the data filenames according to ANN config
+    snprintf(g_trainDataFilename, NAME_LENGTH, TRAIN_DATA_FILENAME, g_annNumOfInputs, ANN_NUM_OUTPUT);
+    snprintf(g_configFilename, NAME_LENGTH, ANN_FILENAME, g_annNumOfInputs, ANN_NUM_OUTPUT);
 
-	printf("About to create the ANN\n");
+    theData = (dataNode*)calloc(g_size * g_size, sizeof(dataNode));
+    if (theData == NULL)
+    {
+        printf("Allocation of memory to the data failed\n");
+        exit (1);
+    }
+
+    printf("About to create the ANN\n");
     // Open the neuron network config file.
     g_ann = fann_create_from_file(g_configFilename);
     if (g_ann == NULL)
     {
-		int annNumHiddenLayer1 = (g_annNumOfInputs);
-		int annNumHiddenLayer2 = (annNumHiddenLayer1 / 3);
-		int annNumHiddenLayer3 = (ANN_NUM_OUTPUT * 4);
-		
+        int annNumHiddenLayer1 = (g_annNumOfInputs);
+        int annNumHiddenLayer2 = (annNumHiddenLayer1 / 3);
+        int annNumHiddenLayer3 = (ANN_NUM_OUTPUT * 4);
+
         // Unable to load existing ann. Creating a new one.
         g_ann = fann_create_standard(ANN_NUM_LAYERS,
                                    g_annNumOfInputs,
@@ -284,27 +302,27 @@ void ModelSetup(const char *messageQueuePath, int size)
                                    annNumHiddenLayer3,
                                    ANN_NUM_OUTPUT);
     }
-    
+
     ConfigureAnn();
 }
 
 struct fann_train_data * LoadTrainingData()
 {
     struct fann_train_data * trainData = fann_read_train_from_file(g_trainDataFilename);
-    
+
     // Open the training data file.
     if (trainData != NULL)
     {
-		printf("Loaded %d training sets\n", trainData->num_data);
-	}
-	
-	return trainData;
+        printf("Loaded %d training sets\n", trainData->num_data);
+    }
+
+    return trainData;
 }
 
 void CloseTrainingData(struct fann_train_data *trainData)
 {
-	int ret = 0;
-	// Save and destroy training data
+    int ret = 0;
+    // Save and destroy training data
     ret = fann_save_train(trainData, g_trainDataFilename);
     if (ret == -1) perror("Save train");
     fann_destroy_train(trainData);
@@ -314,7 +332,7 @@ void CloseTrainingData(struct fann_train_data *trainData)
 // For one solution recorded - extract data for future ANN training;
 void ModelExtractTrainingData()
 {
-	
+
     // Go throught the selected nodes and add trainingdata
     int x = g_size - 1;
     int y = g_size - 1;
@@ -322,92 +340,104 @@ void ModelExtractTrainingData()
     double likelyhood;
     dataNode * n = GetNodePointer(x, y);
 
-	struct fann_train_data *diskTrainingData = LoadTrainingData();
+    struct fann_train_data *diskTrainingData = LoadTrainingData();
     struct fann_train_data *tmpTrainingData = fann_create_train(1, g_annNumOfInputs, ANN_NUM_OUTPUT);
-    
-    
-    
-	for (int i = 0; i < (g_size + g_size); i++)
+
+
+
+    for (int i = 0; i < (g_size + g_size); i++)
     {
-		// Generate the data
-		ModelPrepareData();
+        // Generate the data
+        ModelPrepareData();
 
-		// Run the reference algorithm
-		ModelRunReferenceAlgo();
+        // Run the reference algorithm
+        ModelRunReferenceAlgo();
 
-		while(n->route_x != 0 || n->route_y != 0)
-		{
-			/* Likelyhood of point being included in the dataset is 100%
-			 * on the diagonal and 1/ numberOfPointsOnDiagonal at the
-			 * start and end. */
-			
-			if (x + y > (g_size - 1))
-			{
-				currDiag = fmax(abs(g_size - 1 - x), (g_size - 1 - y)); 
-			}
-			else
-			{
-				currDiag = fmax(x, y); 
-			}
-			
-			likelyhood = hypot(currDiag, currDiag) / hypot(g_size - 1 , g_size - 1); 
-			
-			double randomNum = (double)rand() / RAND_MAX;
+        while(n->route_x != 0 || n->route_y != 0)
+        {
+            /* Likelyhood of point being included in the dataset is 100%
+             * on the diagonal and 1/ numberOfPointsOnDiagonal at the
+             * start and end. */
 
-			if ((randomNum) < likelyhood)
-			{
-				IntensityToInput(tmpTrainingData->input[0]);
-				tmpTrainingData->input[0][g_size * g_size] = x;
-				tmpTrainingData->input[0][g_size * g_size + 1] = y;
-				tmpTrainingData->output[0][0] = 0;
-				tmpTrainingData->output[0][1] = 0;
-				tmpTrainingData->output[0][2] = 0;
-				tmpTrainingData->output[0][3] = 0;
-				tmpTrainingData->output[0][n->dir] = 1.0;
+            if (x + y > (g_size - 1))
+            {
+                currDiag = fmax(abs(g_size - 1 - x), (g_size - 1 - y));
+            }
+            else
+            {
+                currDiag = fmax(x, y);
+            }
 
-				// Merge the training data with existing set.
-				if (diskTrainingData == NULL)
-				{
-					diskTrainingData = tmpTrainingData;
-					tmpTrainingData = fann_create_train(1,
-														g_annNumOfInputs,
-														ANN_NUM_OUTPUT);
-				}
-				else
-				{
-					struct fann_train_data *tmp2TrainingData;
-					tmp2TrainingData = fann_merge_train_data(diskTrainingData, tmpTrainingData);
-					fann_destroy_train(diskTrainingData);
-					diskTrainingData = tmp2TrainingData;
-				}
-			}
-			x += n->route_x;
-			y += n->route_y;
-			n = GetNodePointer(x, y);
-		}
-	}
-	// Cloes training data
+            likelyhood = hypot(currDiag, currDiag) / hypot(g_size - 1 , g_size - 1);
+
+            double randomNum = (double)rand() / RAND_MAX;
+
+            if ((randomNum) < likelyhood)
+            {
+                IntensityToInput(tmpTrainingData->input[0]);
+                tmpTrainingData->input[0][g_size * g_size] = x;
+                tmpTrainingData->input[0][g_size * g_size + 1] = y;
+                tmpTrainingData->output[0][0] = 0;
+                tmpTrainingData->output[0][1] = 0;
+                tmpTrainingData->output[0][2] = 0;
+                tmpTrainingData->output[0][3] = 0;
+                tmpTrainingData->output[0][n->dir] = 1.0;
+
+                // Merge the training data with existing set.
+                if (diskTrainingData == NULL)
+                {
+                    diskTrainingData = tmpTrainingData;
+                    tmpTrainingData = fann_create_train(1,
+                                                        g_annNumOfInputs,
+                                                        ANN_NUM_OUTPUT);
+                }
+                else
+                {
+                    struct fann_train_data *tmp2TrainingData;
+                    tmp2TrainingData = fann_merge_train_data(diskTrainingData, tmpTrainingData);
+                    fann_destroy_train(diskTrainingData);
+                    diskTrainingData = tmp2TrainingData;
+                }
+            }
+            x += n->route_x;
+            y += n->route_y;
+            n = GetNodePointer(x, y);
+        }
+    }
+    // Cloes training data
     fann_destroy_train(tmpTrainingData);
     CloseTrainingData(diskTrainingData);
 }
 
+double ModelGetTrainingResults(int x, int xMax)
+{
+    int index = (int)(1.0 * x * (g_numberOfTrainLevels -1) / (xMax - 1) + 0.5);
+    //printf("data: %f\n", g_trainLevel[index]);
+    return g_trainLevel[index];
+}
+
+bool ModelCheckTrainingOngoing()
+{
+    return g_trainingOngoing;
+}
+
 void ModelGetRGB(int x, int y, double *red, double *green, double *blue)
 {
-	dataNode *dat = GetNodePointer(x, y);
-	
-	// Choose the color of the pixel from the paths found.
-	if (dat->chosenByReference || dat->chosenByAnn || dat->chosenBySimple)
-	{
-		*red = (double)dat->chosenByReference;
-		*green = (double)dat->chosenByAnn;
-		*blue = (double)dat->chosenBySimple;
-	}
-	else
-	{
-		*red = dat->intensity;
-		*green = dat->intensity;
-		*blue = dat->intensity;
-	}
+    dataNode *dat = GetNodePointer(x, y);
+
+    // Choose the color of the pixel from the paths found.
+    if (dat->chosenByReference || dat->chosenByAnn || dat->chosenBySimple)
+    {
+        *red = (double)dat->chosenByReference;
+        *green = (double)dat->chosenByAnn;
+        *blue = (double)dat->chosenBySimple;
+    }
+    else
+    {
+        *red = dat->intensity;
+        *green = dat->intensity;
+        *blue = dat->intensity;
+    }
 }
 
 void ModelRunAnn()
@@ -418,10 +448,10 @@ void ModelRunAnn()
     int y = g_size - 1;
     double cost = 0;
     dataNode *n = GetNodePointer(x, y);
-	double_t intensityOfPreviousNode = n->intensity;
+    double_t intensityOfPreviousNode = n->intensity;
     while (InsideAndNotChosenByAnn(x,y))
     {
-		cost += GetCostOfStep(intensityOfPreviousNode, n->intensity);
+        cost += GetCostOfStep(intensityOfPreviousNode, n->intensity);
         n->chosenByAnn = true;
         if (x == 0 && y == 0)
         {
@@ -440,7 +470,7 @@ void ModelPrepareData()
 #define START_INTENSITY 0.5
     double maxIntensity = -1000;
     double minIntensity = 10000;
-    
+
     for (int w = 0; w < NR_OF_WAVES; w++)
     {
         g_waves[w].frequency = (double)rand() / RAND_MAX / 2;
@@ -448,13 +478,13 @@ void ModelPrepareData()
         g_waves[w].x = (double)rand() / RAND_MAX * 2 * g_size;
         g_waves[w].y = (double)rand() / RAND_MAX * 2 * g_size;
     }
-    
+
     memset(theData, 0, g_size * g_size * sizeof(dataNode));
     for (int i = 0; i < g_size; i++)
     {
         for (int j = 0; j < g_size; j++)
         {
-			dataNode *n = GetNodePointer(i, j);
+            dataNode *n = GetNodePointer(i, j);
             n->intensity = START_INTENSITY;
             for (int w = 0; w < NR_OF_WAVES; w++)
             {
@@ -468,15 +498,15 @@ void ModelPrepareData()
             }
         }
     }
-    
+
     //Scale the visible data
     for (int i = 0; i < g_size; i++)
     {
         for (int j = 0; j < g_size; j++)
         {
-			dataNode *n = GetNodePointer(i, j);
+            dataNode *n = GetNodePointer(i, j);
             n->intensity = (n->intensity - minIntensity) /
-                           (maxIntensity - minIntensity); 
+                           (maxIntensity - minIntensity);
         }
     }
 }
@@ -503,7 +533,7 @@ void ModelRunReferenceAlgo()
         n = GetNodePointer(x, y);
     }
     printf("Reference cost is %lf\n",
-	       GetNodePointer(g_size - 1, g_size - 1)->cost);
+           GetNodePointer(g_size - 1, g_size - 1)->cost);
 }
 
 void ModelRunSimpleAlgo()
@@ -520,12 +550,12 @@ void ModelRunSimpleAlgo()
         double upIntensity = GetNodePointer(x, y - 1)->intensity;
         double leftIntensity = GetNodePointer(x - 1, y)->intensity;
         double toIntensity;
-        
+
         if (y == 0)
         {
             x--;
             toIntensity = leftIntensity;
-            
+
         }
         else if (x == 0)
         {
@@ -564,7 +594,7 @@ void ModelRunSimpleAlgo()
                     y--;
                     toIntensity = upIntensity;
                 }
-                
+
             }
         }
         totalCost += GetCostOfStep(fromIntensity, toIntensity);
@@ -576,10 +606,10 @@ void ModelRunSimpleAlgo()
 
 void ModelSetStopTraining(bool value)
 {
-	g_stopTraining = value;
+    g_stopTraining = value;
 }
 
 bool ModelGetStopTraining()
 {
-	return g_stopTraining;
+    return g_stopTraining;
 }
